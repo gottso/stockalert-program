@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Sector Rotation</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#0a0a0c; --panel:#111114; --line:#1e1e22; --sub:#8a8a92; --text:#e8e8ea;
+    --strong:#1f7a3d; --strong-t:#c9ffd8;
+    --ok:#0f6b6b;     --ok-t:#c8fbfb;
+    --watch:#b4740c;  --watch-t:#ffeccb;
+    --avoid:#992222;  --avoid-t:#ffd6d6;
+    --up:#28a05a; --down:#d05a5a;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",sans-serif;
+    padding:16px 14px 60px;}
+  h1{font-size:19px;font-weight:700;margin:0 0 2px;letter-spacing:-.3px}
+  .updated{font-size:12px;color:var(--sub);margin-bottom:18px}
+  .market{margin-bottom:26px;background:var(--panel);border:1px solid var(--line);
+    border-radius:14px;padding:14px 12px 8px;}
+  .mkt-head{display:flex;justify-content:space-between;align-items:baseline;margin:0 2px 10px}
+  .mkt-title{font-size:16px;font-weight:700}
+  .mkt-date{font-size:12px;color:var(--sub)}
+  table{width:100%;border-collapse:separate;border-spacing:0 6px}
+  th{font-size:11px;color:var(--sub);font-weight:500;text-align:center;padding:0 4px 4px}
+  th.left{text-align:left;padding-left:4px}
+  td{font-size:13px;text-align:center;padding:9px 4px;border-radius:7px}
+  td.name{text-align:left;padding-left:6px;font-weight:600;white-space:nowrap}
+  td.px{font-size:11.5px;color:var(--sub);text-align:right;padding-right:8px;white-space:nowrap}
+  .cell{font-weight:600}
+  .Strong{background:var(--strong);color:var(--strong-t)}
+  .OK{background:var(--ok);color:var(--ok-t)}
+  .Watch{background:var(--watch);color:var(--watch-t)}
+  .Avoid{background:var(--avoid);color:var(--avoid-t)}
+  .pos{color:var(--up)} .neg{color:var(--down)}
+  .rotation{margin:10px 2px 2px;padding:9px 12px;border-radius:9px;font-size:13px;
+    display:flex;justify-content:space-between;align-items:center;border:1px solid var(--line)}
+  .rot-RISKON{background:#14331f;color:#8ff0b0}
+  .rot-SELECTIVE{background:#3a2a08;color:#ffd487}
+  .rot-CAUTION{background:#3a2408;color:#ffbe73}
+  .rot-RISKOFF{background:#331414;color:#ff9a9a}
+  .foot{font-size:11.5px;color:var(--sub);margin:8px 2px 0}
+  .loading,.err{color:var(--sub);font-size:14px;padding:40px 4px;text-align:center}
+  .err{color:#ff9a9a}
+</style>
+</head>
+<body>
+  <h1>📊 Sector Rotation</h1>
+  <div class="updated" id="updated">불러오는 중…</div>
+  <div id="root"><div class="loading">데이터 로딩 중…</div></div>
+
+<script>
+// ── 여기 두 줄만 본인 값으로 교체 ─────────────────
+const SUPABASE_URL  = "https://mafsbsumhoeptgueqdlq.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1hZnNic3VtaG9lcHRndWVxZGxxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5MTI3MjYsImV4cCI6MjA5ODQ4ODcyNn0.ujxRqHSTypICvJGDPCira_LWpnYi9c4rghcVfwL93s0";
+// ────────────────────────────────────────────────
+
+const MARKETS = [
+  { key:"US",    title:"🇺🇸 US SECTORS" },
+  { key:"KR",    title:"🇰🇷 KR SECTORS" },
+  { key:"MACRO", title:"🌐 MACRO" },
+];
+const ROT_CLASS = { "RISK-ON":"rot-RISKON","SELECTIVE":"rot-SELECTIVE","CAUTION":"rot-CAUTION","RISK-OFF":"rot-RISKOFF" };
+const ORDER = { Strong:0, OK:1, Watch:2, Avoid:3 };
+
+function fmtPrice(v){
+  if(v==null) return "-";
+  const abs=Math.abs(v);
+  if(abs>=1000) return v.toLocaleString(undefined,{maximumFractionDigits:0});
+  if(abs>=100)  return v.toLocaleString(undefined,{maximumFractionDigits:1});
+  return v.toLocaleString(undefined,{maximumFractionDigits:2});
+}
+function fmtPct(v){
+  if(v==null) return "";
+  const s=(v>=0?"+":"")+v.toFixed(2)+"%";
+  return `<span class="${v>=0?'pos':'neg'}">${s}</span>`;
+}
+
+function latestBatch(rows, marketKey){
+  const mine = rows.filter(r=>r.market===marketKey);
+  if(!mine.length) return [];
+  const newest = mine.reduce((a,b)=> a.captured_at>=b.captured_at?a:b).captured_at;
+  return mine.filter(r=>r.captured_at===newest);
+}
+
+function renderMarket(m, snaps, briefs){
+  const rows = latestBatch(snaps, m.key);
+  if(!rows.length) return "";
+  rows.sort((a,b)=> (ORDER[a.status]-ORDER[b.status]) || (b.change_pct-a.change_pct));
+  const date = (rows[0].session_date||"").slice(5).replace("-","/");
+
+  let body = rows.map(r=>`
+    <tr>
+      <td class="name">${r.name}</td>
+      <td class="px">${fmtPrice(r.price)}<br>${fmtPct(r.change_pct)}</td>
+      <td class="cell ${r.status}">${r.above_sma?"Above":"Below"}</td>
+      <td class="cell ${r.status}">${r.slope_up?"Up":"Down"}</td>
+      <td class="cell ${r.status}">${r.status}</td>
+    </tr>`).join("");
+
+  const b = latestBatch(briefs, m.key)[0];
+  let rotHtml="", footHtml="";
+  if(b){
+    const cls = ROT_CLASS[b.rotation]||"rot-SELECTIVE";
+    rotHtml = `<div class="rotation ${cls}"><b>Rotation</b><span>${b.rotation} · 20SMA 위 ${b.above_count}/${b.total_count}</span></div>`;
+    footHtml = `<div class="foot">🟢 Strong ${b.strong_count} · 🟦 OK ${b.ok_count} · 🟧 Watch ${b.watch_count} · 🔴 Avoid ${b.avoid_count}</div>`;
+  }
+
+  return `
+    <div class="market">
+      <div class="mkt-head"><div class="mkt-title">${m.title}</div><div class="mkt-date">${date} 마감</div></div>
+      <table>
+        <thead><tr>
+          <th class="left">지표</th><th>가격</th><th>20SMA</th><th>Slope</th><th>Status</th>
+        </tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+      ${rotHtml}${footHtml}
+    </div>`;
+}
+
+async function load(){
+  const root=document.getElementById("root");
+  if(SUPABASE_URL.includes("YOUR-PROJECT")){
+    root.innerHTML=`<div class="err">index.html 상단의 SUPABASE_URL / SUPABASE_ANON 값을<br>본인 프로젝트 값으로 교체해줘.</div>`;
+    document.getElementById("updated").textContent="";
+    return;
+  }
+  try{
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+    const [{data:snaps,error:e1},{data:briefs,error:e2}] = await Promise.all([
+      sb.from("sector_snapshots").select("*").order("captured_at",{ascending:false}).limit(500),
+      sb.from("briefings").select("*").order("captured_at",{ascending:false}).limit(60),
+    ]);
+    if(e1) throw e1; if(e2) throw e2;
+    if(!snaps || !snaps.length){ root.innerHTML=`<div class="err">아직 데이터가 없어. GitHub Actions를 한 번 수동 실행해봐.</div>`; return; }
+
+    root.innerHTML = MARKETS.map(m=>renderMarket(m, snaps, briefs||[])).join("");
+    const newest = snaps.reduce((a,b)=> a.captured_at>=b.captured_at?a:b).captured_at;
+    document.getElementById("updated").textContent =
+      "최근 업데이트: " + new Date(newest).toLocaleString("ko-KR",{timeZone:"Asia/Seoul"});
+  }catch(err){
+    root.innerHTML=`<div class="err">로드 실패: ${err.message||err}</div>`;
+  }
+}
+load();
+setInterval(load, 5*60*1000); // 5분마다 자동 새로고침
+</script>
+</body>
+</html>
