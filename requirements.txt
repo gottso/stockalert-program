@@ -2,3 +2,4 @@ yfinance>=0.2.50
 pandas>=2.0
 requests>=2.31
 supabase>=2.4
+matplotlib>=3.8
