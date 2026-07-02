@@ -2,9 +2,11 @@ name: sector-briefing
 
 on:
   schedule:
-    - cron: '10 7 * * 1-5'    # 16:10 KST — 한국장 마감 후 (정각 회피)
-    - cron: '40 21 * * 1-5'   # 06:40 KST — 미국장 마감 후 (정각 회피)
-  workflow_dispatch:          # 수동 실행 버튼
+    - cron: '10 7 * * 1-5'    # 16:10 KST (GitHub 스케줄 - 백업용)
+    - cron: '40 21 * * 1-5'   # 06:40 KST (GitHub 스케줄 - 백업용)
+  workflow_dispatch:           # 수동 실행 버튼
+  repository_dispatch:         # 외부(cron-job.org)에서 API로 실행
+    types: [run-briefing]
 
 jobs:
   brief:
