@@ -81,6 +81,21 @@ SLOPE_LOOKBACK = 5     # 기울기 판정용 lookback (SMA가 5일 전보다 높
 STATUS_EMOJI = {"Strong": "🟢", "OK": "🟦", "Watch": "🟧", "Avoid": "🔴"}
 STATUS_ORDER = {"Strong": 0, "OK": 1, "Watch": 2, "Avoid": 3}
 
+# 텔레그램 메시지 하단에 붙는 해석 가이드
+LEGEND = (
+    "━━━━━━━━━━━━━━━━\n"
+    "📖 읽는 법\n"
+    "· 20SMA  Above=20일선 위(강세궤도) / Below=아래(약세)\n"
+    "· Slope  Up=추세 상승전환 / Down=추세 하락\n"
+    "· 🟢 Strong  주도섹터 (매수·보유)\n"
+    "· 🟦 OK  위지만 힘빠짐 (경계·익절고민)\n"
+    "· 🟧 Watch  바닥 반등초입 (관찰대상)\n"
+    "· 🔴 Avoid  추세약세 (신규진입 회피)\n"
+    "· Rotation  RISK-ON 광범위강세 / SELECTIVE 선별장 / "
+    "CAUTION 약화 / RISK-OFF 광범위약세\n"
+    "· MACRO는 지표 방향일 뿐 — 달러·금리·VIX 상승은 증시엔 보통 역풍"
+)
+
 # 이미지 색상 (대시보드와 동일 팔레트)
 IMG_BG = "#0b0b0d"
 IMG_PANEL = "#121216"
@@ -270,6 +285,8 @@ def build_message(header_date, blocks):
         for r in ordered:
             e = STATUS_EMOJI[r["status"]]
             lines.append(f"{e} {r['name']}  {r['change_pct']:+.2f}%")
+    lines.append("")
+    lines.append(LEGEND)
     return "\n".join(lines)
 
 
@@ -284,205 +301,3 @@ def setup_font():
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     ]
     for path in candidates:
-        if os.path.exists(path):
-            try:
-                font_manager.fontManager.addfont(path)
-                name = font_manager.FontProperties(fname=path).get_name()
-                plt.rcParams["font.family"] = name
-                print(f"[INFO] 폰트 사용: {name}")
-                break
-            except Exception:
-                continue
-    plt.rcParams["axes.unicode_minus"] = False
-
-
-def _cell(ax, x0, x1, yc, label, sc):
-    h = 0.66
-    box = FancyBboxPatch(
-        (x0, yc - h / 2), x1 - x0, h,
-        boxstyle="round,pad=0.0,rounding_size=0.12",
-        linewidth=0, facecolor=sc["bg"],
-    )
-    ax.add_patch(box)
-    ax.text((x0 + x1) / 2, yc, label, color=sc["fg"],
-            fontsize=10, ha="center", va="center", fontweight="bold")
-
-
-def render_table_image(title, subtitle, rows, rotation=None):
-    rows = sorted(rows, key=lambda x: (STATUS_ORDER[x["status"]], -x["change_pct"]))
-    n = len(rows)
-    footer_units = 1.9 if rotation else 1.0
-    H = n * 0.9 + 3.2 + footer_units
-    fig, ax = plt.subplots(figsize=(10.5, H * 0.5), dpi=140)
-    fig.patch.set_facecolor(IMG_BG)
-    ax.set_facecolor(IMG_BG)
-    ax.set_xlim(0, 10)
-    ax.set_ylim(0, H)
-    ax.axis("off")
-
-    ax.add_patch(FancyBboxPatch(
-        (0.1, 0.1), 9.8, H - 0.2,
-        boxstyle="round,pad=0.0,rounding_size=0.25",
-        linewidth=1, edgecolor=IMG_LINE, facecolor=IMG_PANEL,
-    ))
-
-    y = H - 0.6
-    ax.text(0.4, y, title, color=IMG_TEXT, fontsize=15, fontweight="bold", va="center")
-    ax.text(9.6, y, subtitle, color=IMG_SUB, fontsize=10, ha="right", va="center")
-
-    y -= 0.95
-    ax.text(0.4, y, "지표", color=IMG_SUB, fontsize=9, va="center")
-    ax.text(4.35, y, "가격", color=IMG_SUB, fontsize=9, ha="right", va="center")
-    ax.text(5.6, y, "20SMA", color=IMG_SUB, fontsize=9, ha="center", va="center")
-    ax.text(7.35, y, "Slope", color=IMG_SUB, fontsize=9, ha="center", va="center")
-    ax.text(8.92, y, "Status", color=IMG_SUB, fontsize=9, ha="center", va="center")
-
-    y -= 0.35
-    for r in rows:
-        y -= 0.9
-        sc = SCOL[r["status"]]
-        ax.text(0.4, y, r["name"], color=IMG_TEXT, fontsize=11, fontweight="bold", va="center")
-        ax.text(4.35, y + 0.16, fmt_price(r["price"]), color=IMG_SUB, fontsize=8.5, ha="right", va="center")
-        ax.text(4.35, y - 0.17, f"{r['change_pct']:+.2f}%",
-                color=(IMG_POS if r["change_pct"] >= 0 else IMG_NEG),
-                fontsize=8.5, ha="right", va="center")
-        _cell(ax, 4.7, 6.45, y, "Above" if r["above_sma"] else "Below", sc)
-        _cell(ax, 6.5, 8.2, y, "Up" if r["slope_up"] else "Down", sc)
-        _cell(ax, 8.25, 9.6, y, r["status"], sc)
-
-    above = sum(r["above_sma"] for r in rows)
-    tot = len(rows)
-    counts = {s: sum(r["status"] == s for r in rows) for s in STATUS_ORDER}
-
-    y -= 1.0
-    if rotation:
-        rc = ROT_BG.get(rotation, "#2a2a2a")
-        rt = ROT_FG.get(rotation, "#dddddd")
-        ax.add_patch(FancyBboxPatch(
-            (0.4, y - 0.05), 9.2, 0.7,
-            boxstyle="round,pad=0.0,rounding_size=0.12",
-            linewidth=0, facecolor=rc,
-        ))
-        ax.text(0.7, y + 0.3, "Rotation", color=rt, fontsize=10, fontweight="bold", va="center")
-        ax.text(9.3, y + 0.3, f"{rotation}  ·  20SMA 위 {above}/{tot}",
-                color=rt, fontsize=10, ha="right", va="center")
-        y -= 0.75
-
-    ax.text(0.4, y,
-            f"Strong {counts['Strong']}    OK {counts['OK']}    "
-            f"Watch {counts['Watch']}    Avoid {counts['Avoid']}",
-            color=IMG_SUB, fontsize=9, va="center")
-
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", facecolor=IMG_BG, bbox_inches="tight", pad_inches=0.12)
-    plt.close(fig)
-    buf.seek(0)
-    return buf.getvalue()
-
-
-# ─────────────────────────────────────────────
-# 텔레그램 전송
-# ─────────────────────────────────────────────
-def send_telegram_text(text):
-    token = os.environ.get("TELEGRAM_TOKEN")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
-    if not (token and chat_id):
-        print("[INFO] 텔레그램 환경변수 없음 — 텍스트 전송 건너뜀")
-        return
-    try:
-        resp = requests.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            data={"chat_id": chat_id, "text": text},
-            timeout=20,
-        )
-        print("[OK] 텔레그램 텍스트 전송 완료" if resp.ok else f"[WARN] 텍스트 실패: {resp.text}")
-    except Exception as e:
-        print(f"[WARN] 텍스트 전송 예외: {e}")
-
-
-def send_telegram_photos(images):
-    """images: [(png_bytes, caption_or_None), ...]  2장 이상이면 mediaGroup."""
-    token = os.environ.get("TELEGRAM_TOKEN")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
-    if not (token and chat_id):
-        print("[INFO] 텔레그램 환경변수 없음 — 이미지 전송 건너뜀")
-        return
-    images = [im for im in images if im and im[0]]
-    if not images:
-        return
-    try:
-        if len(images) == 1:
-            png, cap = images[0]
-            data = {"chat_id": chat_id}
-            if cap:
-                data["caption"] = cap
-            resp = requests.post(
-                f"https://api.telegram.org/bot{token}/sendPhoto",
-                data=data, files={"photo": ("brief.png", png, "image/png")}, timeout=60,
-            )
-        else:
-            files, media = {}, []
-            for i, (png, cap) in enumerate(images):
-                key = f"photo{i}"
-                files[key] = (f"{key}.png", png, "image/png")
-                item = {"type": "photo", "media": f"attach://{key}"}
-                if cap:
-                    item["caption"] = cap
-                media.append(item)
-            resp = requests.post(
-                f"https://api.telegram.org/bot{token}/sendMediaGroup",
-                data={"chat_id": chat_id, "media": json.dumps(media)}, files=files, timeout=90,
-            )
-        print("[OK] 텔레그램 이미지 전송 완료" if resp.ok else f"[WARN] 이미지 실패: {resp.text}")
-    except Exception as e:
-        print(f"[WARN] 이미지 전송 예외: {e}")
-
-
-# ─────────────────────────────────────────────
-# 메인
-# ─────────────────────────────────────────────
-def main():
-    now = dt.datetime.now(KST)
-    captured_at = now.isoformat()
-    wd = ["월", "화", "수", "목", "금", "토", "일"][now.weekday()]
-    header_date = now.strftime("%m/%d") + f"({wd})"
-
-    us = collect("US", US_SECTORS, "sector")
-    kr = collect("KR", KR_SECTORS, "sector")
-    mc = collect("MACRO", MACRO, "macro")
-
-    us_sum = summarize("US", us)
-    kr_sum = summarize("KR", kr)
-
-    snapshots = us + kr + mc
-    briefings = [b for b in [us_sum, kr_sum] if b]
-
-    save_supabase(snapshots, briefings, captured_at)
-
-    # 텍스트
-    blocks = [
-        ("🇺🇸 US SECTORS", us, us_sum),
-        ("🇰🇷 KR SECTORS", kr, kr_sum),
-        ("🌐 MACRO", mc, None),
-    ]
-    text = build_message(header_date, blocks)
-    print("\n" + text)
-    send_telegram_text(text)
-
-    # 이미지
-    setup_font()
-    images = []
-    if us:
-        images.append((render_table_image("US SECTORS", f"{header_date} 마감", us,
-                                           rotation=(us_sum or {}).get("rotation")),
-                       f"섹터 로테이션 · {header_date} 마감"))
-    if kr:
-        images.append((render_table_image("KR SECTORS", f"{header_date} 마감", kr,
-                                           rotation=(kr_sum or {}).get("rotation")), None))
-    if mc:
-        images.append((render_table_image("MACRO", f"{header_date} 마감", mc, rotation=None), None))
-    send_telegram_photos(images)
-
-
-if __name__ == "__main__":
-    main()
