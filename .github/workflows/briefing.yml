@@ -1,8 +1,8 @@
 name: sector-briefing
 
 on:
-  workflow_dispatch:          # 수동 실행 버튼
-  repository_dispatch:        # cron-job.org / 텔레그램 "지금" 에서 실행
+  workflow_dispatch:          # 수동 실행 버튼 (구독자 전원에게 발송)
+  repository_dispatch:        # cron-job.org(정시) / 텔레그램 "지금"(온디맨드)
     types: [run-briefing]
 
 jobs:
@@ -27,7 +27,9 @@ jobs:
       - name: Run briefing
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          # 텔레그램 "지금" 버튼으로 온 요청이면 client_payload.chat_id 가 채워짐.
+          # 정시(cron-job.org)·수동 실행이면 비어있어 → 구독자 전원 발송으로 처리됨.
+          ON_DEMAND_CHAT_ID: ${{ github.event.client_payload.chat_id }}
         run: python collect_and_brief.py
