@@ -17,6 +17,9 @@ create table if not exists sector_snapshots (
   sma20        numeric,
   above_sma    boolean,
   slope_up     boolean,
+  ext          numeric,                -- 이격도 %
+  rs20         numeric,                -- 상대강도(섹터-시장 20일)
+  stage        text,                   -- Leading|Healthy|Late-Chase|OK|Improving|Repair|Weak
   status       text                    -- 'Strong'|'OK'|'Watch'|'Avoid'
 );
 
