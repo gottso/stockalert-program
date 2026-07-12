@@ -521,26 +521,43 @@ def render_bar_chart(title, index_rows, sector_rows):
 # ─────────────────────────────────────────────
 # 텔레그램
 # ─────────────────────────────────────────────
-def send_telegram_text(text):
-    token = os.environ.get("TELEGRAM_TOKEN"); chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+def get_subscribers():
+    """활성 구독자 chat_id 목록 조회. Supabase 설정 없으면 빈 목록."""
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_SERVICE_KEY")
+    if not (url and key and create_client):
+        print("[INFO] Supabase 환경변수 없음 — 구독자 조회 불가")
+        return []
+    try:
+        sb = create_client(url, key)
+        res = sb.table("subscribers").select("chat_id").eq("active", True).execute()
+        ids = [row["chat_id"] for row in (res.data or [])]
+        print(f"[INFO] 구독자 {len(ids)}명")
+        return ids
+    except Exception as e:
+        print(f"[WARN] 구독자 조회 실패: {e}")
+        return []
+
+
+def send_telegram_text(chat_id, text):
+    token = os.environ.get("TELEGRAM_TOKEN")
     if not (token and chat_id):
-        print("[INFO] 텔레그램 환경변수 없음 — 텍스트 건너뜀"); return
+        print("[INFO] 텔레그램 토큰/chat_id 없음 — 텍스트 건너뜀"); return
     try:
         r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
                           data={"chat_id": chat_id, "text": text}, timeout=20)
-        print("[OK] 텔레그램 텍스트 전송 완료" if r.ok else f"[WARN] 텍스트 실패: {r.text}")
+        print(f"[OK] 텍스트 전송 완료 → {chat_id}" if r.ok else f"[WARN] 텍스트 실패({chat_id}): {r.text}")
     except Exception as e:
-        print(f"[WARN] 텍스트 예외: {e}")
+        print(f"[WARN] 텍스트 예외({chat_id}): {e}")
 
 
-def send_telegram_photos(images):
-    token = os.environ.get("TELEGRAM_TOKEN"); chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+def send_telegram_photos(chat_id, images):
+    token = os.environ.get("TELEGRAM_TOKEN")
     if not (token and chat_id):
-        print("[INFO] 텔레그램 환경변수 없음 — 이미지 건너뜀"); return
+        print("[INFO] 텔레그램 토큰/chat_id 없음 — 이미지 건너뜀"); return
     images = [im for im in images if im and im[0]]
     if not images:
         return
-    # 텔레그램 mediaGroup 은 최대 10장 → 나눠 전송
     for i in range(0, len(images), 10):
         chunk = images[i:i + 10]
         try:
@@ -559,9 +576,17 @@ def send_telegram_photos(images):
                     media.append(item)
                 r = requests.post(f"https://api.telegram.org/bot{token}/sendMediaGroup",
                                   data={"chat_id": chat_id, "media": json.dumps(media)}, files=files, timeout=90)
-            print("[OK] 이미지 전송 완료" if r.ok else f"[WARN] 이미지 실패: {r.text}")
+            print(f"[OK] 이미지 전송 완료 → {chat_id}" if r.ok else f"[WARN] 이미지 실패({chat_id}): {r.text}")
         except Exception as e:
-            print(f"[WARN] 이미지 예외: {e}")
+            print(f"[WARN] 이미지 예외({chat_id}): {e}")
+
+
+def broadcast(chat_ids, text, images):
+    """여러 구독자에게 텍스트+이미지 순차 발송 (텔레그램 rate limit 완화용 딜레이 포함)."""
+    for cid in chat_ids:
+        send_telegram_text(cid, text)
+        send_telegram_photos(cid, images)
+        time.sleep(0.3)
 
 
 # ─────────────────────────────────────────────
@@ -588,7 +613,6 @@ def main():
 
     text = build_message(header_date, us, kr, mc, us_sum, kr_sum, stance, grade)
     print("\n" + text)
-    send_telegram_text(text)
 
     setup_font()
     images = []
@@ -604,7 +628,19 @@ def main():
     if stance or kr:
         images.append((render_bar_chart(f"한국 마켓+섹터 · 1-Day · {now.strftime('%m/%d')}",
                                         stance, kr), None))
-    send_telegram_photos(images)
+
+    # 온디맨드("지금" 버튼) 요청이면 그 사람에게만, 아니면 구독자 전원에게 브로드캐스트
+    ondemand_chat_id = os.environ.get("ON_DEMAND_CHAT_ID", "").strip()
+    if ondemand_chat_id:
+        print(f"[INFO] 온디맨드 요청 → {ondemand_chat_id} 에게만 발송")
+        send_telegram_text(ondemand_chat_id, text)
+        send_telegram_photos(ondemand_chat_id, images)
+    else:
+        subs = get_subscribers()
+        if not subs:
+            print("[WARN] 구독자가 없음 — 아무에게도 발송 안 됨. 텔레그램에서 /start 를 먼저 보내야 함.")
+        else:
+            broadcast(subs, text, images)
 
 
 if __name__ == "__main__":
